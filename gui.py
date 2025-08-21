@@ -13,10 +13,11 @@ from strategies import (
 from indicators import (
     calculate_ema, calculate_atr, calculate_rsi, calculate_adx
 )
+from ttkthemes import ThemedTk
 
-class MainApplication(tk.Tk):
+class MainApplication(ThemedTk):
     def __init__(self, settings):
-        super().__init__()
+        super().__init__(theme="arc")
         self.title("Forex Scalper")
 
         # make window resizable
@@ -47,10 +48,28 @@ class SettingsPage(ttk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent, padding=10)
         self.controller = controller
-        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=1)
+
+        # --- Credentials ---
+        creds = ttk.Labelframe(self, text="Credentials", padding=10)
+        creds.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        creds.columnconfigure(1, weight=1)
+
+        self.client_id_var = tk.StringVar(value=self.controller.settings.openapi.client_id or "")
+        ttk.Label(creds, text="Client ID:").grid(row=0, column=0, sticky="w", padx=(0,5))
+        ttk.Entry(creds, textvariable=self.client_id_var).grid(row=0, column=1, sticky="ew")
+
+        self.client_secret_var = tk.StringVar(value=self.controller.settings.openapi.client_secret or "")
+        ttk.Label(creds, text="Client Secret:").grid(row=1, column=0, sticky="w", padx=(0,5))
+        ttk.Entry(creds, textvariable=self.client_secret_var, show="*").grid(row=1, column=1, sticky="ew")
+
+        self.advisor_auth_token_var = tk.StringVar(value=self.controller.settings.ai.advisor_auth_token or "")
+        ttk.Label(creds, text="AI Advisor Token:").grid(row=2, column=0, sticky="w", padx=(0,5))
+        ttk.Entry(creds, textvariable=self.advisor_auth_token_var, show="*").grid(row=2, column=1, sticky="ew")
+
 
         acct = ttk.Labelframe(self, text="Account Summary", padding=10)
-        acct.grid(row=0, column=0, sticky="ew", pady=(0,10)) # Changed row from 1 to 0
+        acct.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0,10))
         acct.columnconfigure(1, weight=1)
 
         self.account_id_var = tk.StringVar(value="–")
@@ -71,16 +90,19 @@ class SettingsPage(ttk.Frame):
 
         # --- Actions & Status ---
         actions = ttk.Frame(self)
-        actions.grid(row=1, column=0, sticky="ew", pady=(10,0)) # Changed row from 2 to 1
-        # Removed "Save Settings" button as settings are primarily config file / env var based for OpenAPI
+        actions.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10,0))
+        ttk.Button(actions, text="Save Settings", command=self.save_settings).pack(side="left", padx=5)
         ttk.Button(actions, text="Connect", command=self.attempt_connection).pack(side="left", padx=5)
 
         self.status = ttk.Label(self, text="Disconnected", anchor="center")
-        self.status.grid(row=2, column=0, sticky="ew", pady=(5,0)) # Changed row from 3 to 2
+        self.status.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(5,0))
 
     def save_settings(self):
-        
-        pass
+        self.controller.settings.openapi.client_id = self.client_id_var.get()
+        self.controller.settings.openapi.client_secret = self.client_secret_var.get()
+        self.controller.settings.ai.advisor_auth_token = self.advisor_auth_token_var.get()
+        self.controller.settings.save()
+        messagebox.showinfo("Settings Saved", "Your settings have been saved successfully.")
 
     def attempt_connection(self):
         # self.save_settings() # No longer needed as FIX settings are removed

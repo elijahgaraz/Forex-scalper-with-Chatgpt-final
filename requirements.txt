@@ -16,3 +16,6 @@ requests
 pandas
 numpy~=1.26.0 # Pin numpy to a version likely compatible with pandas-ta's NaN import
 pandas-ta
+
+# For UI Theming
+ttkthemes
