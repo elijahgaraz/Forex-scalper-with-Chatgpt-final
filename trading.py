@@ -132,16 +132,20 @@ except ImportError as e:
 
 TOKEN_FILE_PATH = "tokens.json"
 
+from typing import Callable
+
 class Trader:
-    def __init__(self, settings, history_size: int = 100):
+    def __init__(self, settings, history_size: int = 100, on_account_update: Optional[Callable[[Dict[str, Any]], None]] = None):
         """
         Initializes the Trader.
 
         Args:
             settings: The application settings object.
             history_size: The maximum size of the price history to maintain.
+            on_account_update: An optional callback function to be invoked with account summary updates.
         """
         self.settings = settings
+        self.on_account_update = on_account_update
         self.is_connected: bool = False
         self._is_client_connected: bool = False
         self._last_error: str = ""
@@ -798,6 +802,11 @@ class Trader:
             #     print(f"  Updated used_margin for {logged_ctid}: {self.used_margin}")
             # else:
             #     print(f"  Used margin not found in ProtoOATrader for {logged_ctid}. self.used_margin remains: {self.used_margin}")
+
+            # If a callback is registered, invoke it with the latest summary
+            if self.on_account_update:
+                summary = self.get_account_summary()
+                self.on_account_update(summary)
 
             return trader_proto
         else:
@@ -1675,7 +1684,7 @@ class Trader:
             traceback.print_exc() # Print full traceback for debugging
             return False, f"An exception occurred while placing the order: {e}"
 
-    def get_ai_advice(self, intent: str, features: dict, bot_proposal: dict) -> Optional[AiAdvice]:
+    def get_ai_advice(self, symbol_name: str, intent: str, features: dict, bot_proposal: dict) -> Optional[AiAdvice]:
         """
         Sends data to the AI advisor and returns its recommendation.
         """
@@ -1683,9 +1692,8 @@ class Trader:
             print("AI Overseer is disabled or URL is not configured.")
             return None
 
-        symbol_name = self.settings.general.default_symbol
         if not symbol_name:
-            print("Cannot get AI advice: default_symbol not set in settings.")
+            print("Cannot get AI advice: symbol_name not provided.")
             return None
 
         payload = {
