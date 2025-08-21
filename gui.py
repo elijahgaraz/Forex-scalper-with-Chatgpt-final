@@ -692,28 +692,20 @@ class TradingPage(ttk.Frame):
                         self._ui_queue.put((self._log, (f"Error closing positions: {e}",)))
                     self.batch_start_equity = equity
                     self.current_batch_trades = 0
-                else:
-                    time.sleep(1)
-                    continue
+                # BUG FIX: Removed the `else...continue` which would halt trading if the
+                # profit target was not met after the batch size was reached.
 
             print("Fetching tick price...")
             current_tick_price = self.trader.get_market_price(symbol)
             print(f"Tick price: {current_tick_price}")
 
-            # Fetch OHLC
+            # Fetch OHLC data. Data is already prepared in trading.py
             ohlc_1m_df = self.trader.ohlc_history.get('1m', pd.DataFrame())
             
-            if (
-                isinstance(ohlc_1m_df, pd.DataFrame)
-                and not ohlc_1m_df.empty
-                and 'timestamp' in ohlc_1m_df.columns
-                and isinstance(ohlc_1m_df.index, pd.RangeIndex)
-            ):
-                try:
-                    ohlc_1m_df['timestamp'] = pd.to_datetime(ohlc_1m_df['timestamp'], utc=True)
-                    ohlc_1m_df.set_index('timestamp', inplace=True)
-                except Exception as e:
-                    print(f"Error during timestamp normalization: {e}")
+            # BUG FIX: Removed redundant and buggy dataframe processing.
+            # The dataframe from trader.ohlc_history is already indexed by timestamp.
+            # The previous logic would fail after the first trade because the index
+            # was no longer a RangeIndex.
 
             # Strategy decision
             action_details = strategy.decide({
