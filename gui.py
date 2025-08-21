@@ -108,6 +108,10 @@ class SettingsPage(ttk.Frame):
         ttk.Label(creds, text="AI Advisor Token:").grid(row=2, column=0, sticky="w", padx=(0,5))
         ttk.Entry(creds, textvariable=self.advisor_auth_token_var, show="*").grid(row=2, column=1, sticky="ew")
 
+        self.account_id_entry_var = tk.StringVar(value=self.controller.settings.openapi.default_ctid_trader_account_id or "")
+        ttk.Label(creds, text="Account ID:").grid(row=3, column=0, sticky="w", padx=(0,5))
+        ttk.Entry(creds, textvariable=self.account_id_entry_var).grid(row=3, column=1, sticky="ew")
+
 
         acct = ttk.Labelframe(self, text="Account Summary", padding=10)
         acct.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0,10))
@@ -149,6 +153,10 @@ class SettingsPage(ttk.Frame):
         self.controller.settings.openapi.client_id = self.client_id_var.get()
         self.controller.settings.openapi.client_secret = self.client_secret_var.get()
         self.controller.settings.ai.advisor_auth_token = self.advisor_auth_token_var.get()
+        try:
+            self.controller.settings.openapi.default_ctid_trader_account_id = int(self.account_id_entry_var.get())
+        except (ValueError, TypeError):
+            self.controller.settings.openapi.default_ctid_trader_account_id = None
         self.controller.settings.save()
         messagebox.showinfo("Settings Saved", "Your settings have been saved successfully.")
 
@@ -247,6 +255,7 @@ class SettingsPage(ttk.Frame):
         # No need to manually update it here.
 
         available_symbols = t.get_available_symbol_names()
+        trading_page = self.controller.pages[TradingPage]
         if available_symbols: # Ensure there are symbols before trying to populate
             trading_page.populate_symbols_dropdown(available_symbols)
         else:
