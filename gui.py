@@ -3,7 +3,7 @@ import threading
 import tkinter as tk
 import queue
 from tkinter import ttk, messagebox, simpledialog
-from typing import List # Added for type hinting
+from typing import List, Dict, Any # Added for type hinting
 import pandas as pd # Added for OHLC data handling
 from trading import Trader, AiAdvice # adjust import path if needed
 from strategies import (
@@ -14,8 +14,6 @@ from indicators import (
     calculate_ema, calculate_atr, calculate_rsi, calculate_adx
 )
 from ttkthemes import ThemedTk
-
-from typing import Dict
 
 class MainApplication(ThemedTk):
     def __init__(self, settings):
