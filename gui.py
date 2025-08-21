@@ -15,6 +15,8 @@ from indicators import (
 )
 from ttkthemes import ThemedTk
 
+from typing import Dict
+
 class MainApplication(ThemedTk):
     def __init__(self, settings):
         super().__init__(theme="arc")
@@ -25,7 +27,10 @@ class MainApplication(ThemedTk):
         self.columnconfigure(0, weight=1)
 
         self.settings = settings
-        self.trader = Trader(self.settings)
+        self._ui_queue = queue.Queue()
+        self.trader = Trader(self.settings, on_account_update=self._handle_account_update)
+        self.after(100, self._process_ui_queue)
+
 
         container = ttk.Frame(self)
         container.grid(row=0, column=0, sticky="nsew")
@@ -42,6 +47,44 @@ class MainApplication(ThemedTk):
 
     def show_page(self, page_cls):
         self.pages[page_cls].tkraise()
+
+    def _handle_account_update(self, summary: Dict[str, Any]):
+        """Callback for the Trader to push account updates."""
+        self._ui_queue.put(("account_update", summary))
+
+    def _process_ui_queue(self):
+        """Process items from the UI queue."""
+        try:
+            while True:
+                msg_type, data = self._ui_queue.get_nowait()
+
+                # Find the target page
+                trading_page = self.pages[TradingPage]
+
+                if msg_type == "account_update":
+                    for page in self.pages.values():
+                        if hasattr(page, "update_account_info"):
+                            page.update_account_info(
+                                account_id=data.get("account_id", "–"),
+                                balance=data.get("balance"),
+                                equity=data.get("equity"),
+                                margin=data.get("margin")
+                            )
+                elif msg_type == "show_ai_advice":
+                    trading_page._show_ai_advice(data)
+                elif msg_type == "show_ai_error":
+                    trading_page._show_ai_error(data)
+                elif msg_type == "re-enable_ai_button":
+                    trading_page.ai_button.config(state="normal")
+                elif msg_type == "_log":
+                    trading_page._log(data)
+                elif msg_type == "_execute_trade":
+                    trading_page._execute_trade(*data)
+
+        except queue.Empty:
+            pass
+        finally:
+            self.after(100, self._process_ui_queue)
 
 
 class SettingsPage(ttk.Frame):
@@ -96,6 +139,13 @@ class SettingsPage(ttk.Frame):
 
         self.status = ttk.Label(self, text="Disconnected", anchor="center")
         self.status.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(5,0))
+
+    def update_account_info(self, account_id: str, balance: float | None, equity: float | None, margin: float | None):
+        """Public method to update account info StringVars."""
+        self.account_id_var.set(str(account_id) if account_id is not None else "–")
+        self.balance_var.set(f"{balance:.2f}" if balance is not None else "–")
+        self.equity_var.set(f"{equity:.2f}" if equity is not None else "–")
+        self.margin_var.set(f"{margin:.2f}" if margin is not None else "–")
 
     def save_settings(self):
         self.controller.settings.openapi.client_id = self.client_id_var.get()
@@ -195,13 +245,8 @@ class SettingsPage(ttk.Frame):
         )
         self.status.config(text="Connected ✅", foreground="green")
 
-        # Update TradingPage with account info
-        trading_page = self.controller.pages[TradingPage]
-        trading_page.update_account_info(
-            account_id=summary.get("account_id", "–"),
-            balance=summary.get("balance"),
-            equity=summary.get("equity")
-        )
+        # The account info will be updated automatically by the on_account_update callback.
+        # No need to manually update it here.
 
         available_symbols = t.get_available_symbol_names()
         if available_symbols: # Ensure there are symbols before trying to populate
@@ -229,10 +274,6 @@ class TradingPage(ttk.Frame):
         super().__init__(parent, padding=10)
         self.controller = controller
         self.trader = controller.trader
-
-        # Thread-safe event queue for UI updates
-        self._ui_queue = queue.Queue()
-        self.after(100, self._process_ui_queue)
 
         self.is_scalping = False
         self.scalping_thread = None
@@ -467,24 +508,12 @@ class TradingPage(ttk.Frame):
             self.price_var.set("–") # Ensure price is reset if no valid symbol selected
 
 
-    def update_account_info(self, account_id: str, balance: float | None, equity: float | None):
-        """Public method to update account info StringVars from outside (e.g., SettingsPage)."""
+    def update_account_info(self, account_id: str, balance: float | None, equity: float | None, margin: float | None):
+        """Public method to update account info StringVars from the controller."""
         self.account_id_var_tp.set(str(account_id) if account_id is not None else "–")
         self.balance_var_tp.set(f"{balance:.2f}" if balance is not None else "–")
         self.equity_var_tp.set(f"{equity:.2f}" if equity is not None else "–")
-        
-        # Note: TradingPage does not currently display margin, so no update for it here.
-
-    def _process_ui_queue(self):
-        """Called on the mainloop to drain the UI event queue."""
-        try:
-            while True:
-                func, args = self._ui_queue.get_nowait()
-                func(*args)
-        except queue.Empty:
-            pass
-        finally:
-            self.after(100, self._process_ui_queue)
+        # Note: TradingPage does not display margin, but the method signature is kept consistent.
 
     def refresh_price(self):
         symbol = self.symbol_var.get().replace("/", "")
@@ -517,7 +546,7 @@ class TradingPage(ttk.Frame):
             ohlc_1m_df = self.trader.ohlc_history.get('1m', pd.DataFrame())
 
             if price is None or ohlc_1m_df.empty:
-                self._ui_queue.put((self._show_ai_error, ("Could not perform analysis: Market data is missing.",)))
+                self.controller._ui_queue.put(("show_ai_error", ("Could not perform analysis: Market data is missing.",)))
                 return
 
             # 2. Calculate all required indicators
@@ -547,19 +576,19 @@ class TradingPage(ttk.Frame):
 
             # 4. Call the trader's AI advice method
             # We assume 'long' intent for manual analysis; the AI should evaluate based on features regardless
-            advice = self.trader.get_ai_advice(intent="long", features=features, bot_proposal=bot_proposal)
+            advice = self.trader.get_ai_advice(symbol, "long", features, bot_proposal)
 
             # 5. Queue the result for display on the main thread
             if advice:
-                self._ui_queue.put((self._show_ai_advice, (advice,)))
+                self.controller._ui_queue.put(("show_ai_advice", advice))
             else:
-                self._ui_queue.put((self._show_ai_error, ("Failed to get advice from the AI Overseer.",)))
+                self.controller._ui_queue.put(("show_ai_error", "Failed to get advice from the AI Overseer."))
 
         except Exception as e:
-            self._ui_queue.put((self._show_ai_error, (f"An error occurred during analysis: {e}",)))
+            self.controller._ui_queue.put(("show_ai_error", f"An error occurred during analysis: {e}"))
         finally:
             # Re-enable the button via the UI queue
-            self._ui_queue.put((lambda: self.ai_button.config(state="normal"), ()))
+            self.controller._ui_queue.put(("re-enable_ai_button", None))
 
     def _show_ai_advice(self, advice: AiAdvice):
         """Displays the AI advice in a messagebox. Runs on the main UI thread."""
@@ -685,11 +714,11 @@ class TradingPage(ttk.Frame):
                 summary = self.trader.get_account_summary()
                 equity = summary.get("equity", 0.0) or 0.0
                 if equity - self.batch_start_equity >= batch_target:
-                    self._ui_queue.put((self._log, ("Batch profit target reached. Closing positions.",)))
+                    self.controller._ui_queue.put(("_log", "Batch profit target reached. Closing positions."))
                     try:
                         self.trader.close_all_positions()
                     except Exception as e:
-                        self._ui_queue.put((self._log, (f"Error closing positions: {e}",)))
+                        self.controller._ui_queue.put(("_log", f"Error closing positions: {e}"))
                     self.batch_start_equity = equity
                     self.current_batch_trades = 0
                 # BUG FIX: Removed the `else...continue` which would halt trading if the
@@ -708,13 +737,17 @@ class TradingPage(ttk.Frame):
             # was no longer a RangeIndex.
 
             # Strategy decision
-            action_details = strategy.decide({
-                'ohlc_1m': ohlc_1m_df,
-                'ohlc_15s': self.trader.ohlc_history.get('15s', pd.DataFrame()),
-                'current_equity': self.trader.equity,
-                'pip_position': None,
-                'current_price_tick': current_tick_price
-            }, self.trader)
+            action_details = strategy.decide(
+                symbol,
+                {
+                    'ohlc_1m': ohlc_1m_df,
+                    'ohlc_15s': self.trader.ohlc_history.get('15s', pd.DataFrame()),
+                    'current_equity': self.trader.equity,
+                    'pip_position': None,
+                    'current_price_tick': current_tick_price
+                },
+                self.trader
+            )
 
             print(f"Strategy decision: {action_details}")
 
@@ -725,16 +758,13 @@ class TradingPage(ttk.Frame):
                     tp_offset = action_details.get('tp_offset')
                     comment = action_details.get('comment', '')
 
-                    self._ui_queue.put((self._log, (f"Strategy signal: {trade_action.upper()} for {symbol}. {comment}",)))
-                    self._ui_queue.put((
-                        self._execute_trade,
-                        (trade_action, symbol, current_tick_price, size, tp, sl, sl_offset, tp_offset, comment)
-                    ))
+                    self.controller._ui_queue.put(("_log", f"Strategy signal: {trade_action.upper()} for {symbol}. {comment}"))
+                    self.controller._ui_queue.put(("_execute_trade", (trade_action, symbol, current_tick_price, size, tp, sl, sl_offset, tp_offset, comment)))
                 else:
                     comment = action_details.get('comment', "Strategy returned HOLD or no action.")
-                    self._ui_queue.put((self._log, (comment,)))
+                    self.controller._ui_queue.put(("_log", comment))
             else:
-                self._ui_queue.put((self._log, ("Strategy did not return a valid action dictionary.",)))
+                self.controller._ui_queue.put(("_log", "Strategy did not return a valid action dictionary."))
 
             time.sleep(1)
    

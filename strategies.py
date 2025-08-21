@@ -14,7 +14,7 @@ class Strategy(ABC):
     NAME: str = "Base Strategy"
 
     @abstractmethod
-    def decide(self, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
+    def decide(self, symbol: str, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
         return {
             'action': 'hold',
             'comment': f'{self.NAME} not implemented',
@@ -80,7 +80,7 @@ class SafeStrategy(Strategy):
             'tp_offset': None
         }
 
-    def decide(self, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
+    def decide(self, symbol: str, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
         df: pd.DataFrame = data.get('ohlc_1m')
         print("DECIDE() called - OHLC shape:", df.shape if df is not None else "None")
         if df is None or len(df) < self.settings.general.min_bars_for_trading:
@@ -161,7 +161,7 @@ class SafeStrategy(Strategy):
             bot_proposal = {"side": intent, "sl_pips": sl_pips, "tp_pips": tp_pips}
 
             # 3. Get AI advice
-            ai_advice = trader.get_ai_advice(intent, features, bot_proposal)
+            ai_advice = trader.get_ai_advice(symbol, intent, features, bot_proposal)
 
             # 4. Act on AI advice
             if ai_advice:
@@ -198,7 +198,7 @@ class ModerateStrategy(Strategy):
     def get_required_bars(self) -> Dict[str, int]:
         return {'1m': self.settings.general.min_bars_for_trading}
 
-    def decide(self, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
+    def decide(self, symbol: str, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
         df: pd.DataFrame = data.get('ohlc_1m')
         if df is None or len(df) < self.settings.general.min_bars_for_trading:
             return {'action': 'hold', 'comment': f'{self.NAME}: insufficient data', 'sl_offset': None, 'tp_offset': None}
@@ -232,7 +232,7 @@ class AggressiveStrategy(Strategy):
     def get_required_bars(self) -> Dict[str, int]:
         return {'1m': self.settings.general.min_bars_for_trading}
 
-    def decide(self, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
+    def decide(self, symbol: str, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
         df: pd.DataFrame = data.get('ohlc_1m')
         if df is None or len(df) < self.settings.general.min_bars_for_trading:
             return {'action': 'hold', 'comment': f'{self.NAME}: insufficient data', 'sl_offset': None, 'tp_offset': None}
@@ -267,7 +267,7 @@ class MomentumStrategy(Strategy):
     def get_required_bars(self) -> Dict[str, int]:
         return {'1m': self.settings.general.min_bars_for_trading}
 
-    def decide(self, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
+    def decide(self, symbol: str, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
         df: pd.DataFrame = data.get('ohlc_1m')
         if df is None or len(df) < self.settings.general.min_bars_for_trading:
             return {'action': 'hold', 'comment': f'{self.NAME}: insufficient data', 'sl_offset': None, 'tp_offset': None}
@@ -303,7 +303,7 @@ class MeanReversionStrategy(Strategy):
     def get_required_bars(self) -> Dict[str, int]:
         return {'1m': self.settings.general.min_bars_for_trading}
 
-    def decide(self, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
+    def decide(self, symbol: str, data: Dict[str, Any], trader: "Trader") -> Dict[str, Any]:
         df: pd.DataFrame = data.get('ohlc_1m')
         if df is None or len(df) < self.settings.general.min_bars_for_trading:
             return {'action': 'hold', 'comment': f'{self.NAME}: insufficient data', 'sl_offset': None, 'tp_offset': None}
